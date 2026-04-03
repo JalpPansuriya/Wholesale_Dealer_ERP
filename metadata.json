@@ -1,0 +1,5 @@
+{
+  "name": "FreshMart Manager",
+  "description": "A comprehensive grocery management app handling stock, customers, billing, and invoices.",
+  "requestFramePermissions": []
+}
