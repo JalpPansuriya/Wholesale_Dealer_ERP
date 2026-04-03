@@ -116,7 +116,7 @@ export default function App() {
           <div className="bg-blue-600 p-1.5 rounded-lg">
             <ShoppingCart className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-lg font-bold text-slate-800">FreshMart</h1>
+          <h1 className="text-lg font-bold text-slate-800">Soneshwar Namkeen</h1>
         </div>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-600">
           {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -133,7 +133,7 @@ export default function App() {
           <div className="bg-blue-600 p-2 rounded-lg">
             <ShoppingCart className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800">FreshMart</h1>
+          <h1 className="text-xl font-bold text-slate-800">Soneshwar Namkeen</h1>
         </div>
         
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
@@ -317,7 +317,6 @@ function InventoryView({ products, customers, onAdd, onUpdate, onDelete }: { pro
               <th className="px-6 py-3 font-medium">જથ્થાની કેટેગરી</th>
               <th className="px-6 py-3 font-medium">કિંમત</th>
               <th className="px-6 py-3 font-medium">સ્ટોક</th>
-              <th className="px-6 py-3 font-medium">સપ્લાયર</th>
               <th className="px-6 py-3 font-medium text-right">ક્રિયાઓ</th>
             </tr>
           </thead>
@@ -350,7 +349,6 @@ function InventoryView({ products, customers, onAdd, onUpdate, onDelete }: { pro
                       {product.stock}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-slate-600">{customers.find(c => c.id === product.customerId)?.name || 'Unknown'}</td>
                   <td className="px-6 py-4 text-right">
                     <button onClick={() => setEditingId(product.id)} className="text-blue-600 hover:text-blue-800 p-1"><Edit className="w-4 h-4" /></button>
                     <button onClick={() => onDelete(product.id)} className="text-red-500 hover:text-red-700 p-1 ml-2"><Trash className="w-4 h-4" /></button>
@@ -367,12 +365,19 @@ function InventoryView({ products, customers, onAdd, onUpdate, onDelete }: { pro
 }
 
 function ProductFormRow({ initialData, customers, onSave, onCancel }: { key?: string | number, initialData?: Product, customers: Customer[], onSave: (p: Product) => void, onCancel: () => void }) {
-  const [formData, setFormData] = useState<Product>(initialData || {
+  const [formData, setFormData] = useState<{
+    id: string;
+    name: string;
+    quantityCategory: string;
+    price: number | '';
+    stock: number | '';
+    customerId: string;
+  }>(initialData || {
     id: `p${Date.now()}`,
     name: '',
     quantityCategory: '',
-    price: 0,
-    stock: 0,
+    price: '',
+    stock: '',
     customerId: customers[0]?.id || ''
   });
 
@@ -380,15 +385,10 @@ function ProductFormRow({ initialData, customers, onSave, onCancel }: { key?: st
     <tr className="bg-blue-50/50">
       <td className="px-6 py-3"><input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="નામ" autoFocus /></td>
       <td className="px-6 py-3"><input type="text" value={formData.quantityCategory} onChange={e => setFormData({...formData, quantityCategory: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="જથ્થાની કેટેગરી" /></td>
-      <td className="px-6 py-3"><input type="number" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="કિંમત" /></td>
-      <td className="px-6 py-3"><input type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: parseInt(e.target.value) || 0})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="સ્ટોક" /></td>
-      <td className="px-6 py-3">
-        <select value={formData.customerId} onChange={e => setFormData({...formData, customerId: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1 bg-white">
-          {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </td>
-      <td className="px-6 py-3 text-right">
-        <button onClick={() => onSave(formData)} className="text-green-600 hover:text-green-800 p-1"><Check className="w-5 h-5" /></button>
+      <td className="px-6 py-3"><input type="number" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="કિંમત" /></td>
+      <td className="px-6 py-3"><input type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value === '' ? '' : parseInt(e.target.value)})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="સ્ટોક" /></td>
+      <td className="px-6 py-3 text-right whitespace-nowrap">
+        <button onClick={() => onSave({ ...formData, price: typeof formData.price === 'number' ? formData.price : 0, stock: typeof formData.stock === 'number' ? formData.stock : 0 })} className="text-green-600 hover:text-green-800 p-1"><Check className="w-5 h-5" /></button>
         <button onClick={onCancel} className="text-slate-500 hover:text-slate-700 p-1 ml-1"><X className="w-5 h-5" /></button>
       </td>
     </tr>
@@ -423,7 +423,6 @@ function CustomersView({ customers, invoices, onAdd, onUpdate, onDelete }: { cus
                 <th className="px-6 py-3 font-medium">સરનામું</th>
                 <th className="px-6 py-3 font-medium">નિયત તારીખ</th>
                 <th className="px-6 py-3 font-medium">સંપર્ક</th>
-              <th className="px-6 py-3 font-medium">ઇમેઇલ</th>
               <th className="px-6 py-3 font-medium text-right">ક્રિયાઓ</th>
             </tr>
           </thead>
@@ -449,7 +448,6 @@ function CustomersView({ customers, invoices, onAdd, onUpdate, onDelete }: { cus
                   <td className="px-6 py-4 text-slate-600">{customer.address}</td>
                   <td className="px-6 py-4 text-slate-600">{customer.dueDate}</td>
                   <td className="px-6 py-4 text-slate-600">{customer.contact}</td>
-                  <td className="px-6 py-4 text-slate-600">{customer.email}</td>
                   <td className="px-6 py-4 text-right whitespace-nowrap">
                     <button onClick={() => setSelectedCustomer(customer)} className="text-blue-600 hover:text-blue-800 p-1 mr-2" title="વિગતો જુઓ"><FileText className="w-4 h-4" /></button>
                     <button onClick={() => setEditingId(customer.id)} className="text-blue-600 hover:text-blue-800 p-1" title="ફેરફાર કરો"><Edit className="w-4 h-4" /></button>
@@ -484,7 +482,6 @@ function CustomerFormRow({ initialData, onSave, onCancel }: { key?: string | num
       <td className="px-6 py-3"><input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="સરનામું" /></td>
       <td className="px-6 py-3"><input type="date" value={formData.dueDate} onChange={e => setFormData({...formData, dueDate: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1" /></td>
       <td className="px-6 py-3"><input type="text" value={formData.contact} onChange={e => setFormData({...formData, contact: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="ફોન" /></td>
-      <td className="px-6 py-3"><input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full border border-slate-300 rounded px-2 py-1" placeholder="ઇમેઇલ" /></td>
       <td className="px-6 py-3 text-right whitespace-nowrap">
         <button onClick={() => onSave(formData)} className="text-green-600 hover:text-green-800 p-1"><Check className="w-5 h-5" /></button>
         <button onClick={onCancel} className="text-slate-500 hover:text-slate-700 p-1 ml-1"><X className="w-5 h-5" /></button>
@@ -533,13 +530,6 @@ function CustomerDetail({ customer, invoices, onBack }: { customer: Customer, in
               <div>
                 <p className="text-sm font-medium text-slate-700">સંપર્ક</p>
                 <p className="text-slate-600">{customer.contact || 'N/A'}</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <Mail className="w-5 h-5 text-slate-400 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-slate-700">ઇમેઇલ</p>
-                <p className="text-slate-600">{customer.email || 'N/A'}</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
