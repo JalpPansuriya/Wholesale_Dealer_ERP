@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { db } from './firebase';
 import {
   LayoutDashboard,
   Package,
@@ -40,23 +42,56 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // App State
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
+  useEffect(() => {
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
+    });
+    const unsubCustomers = onSnapshot(collection(db, 'customers'), (snapshot) => {
+      setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
+    });
+    const unsubInvoices = onSnapshot(collection(db, 'invoices'), (snapshot) => {
+      setInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
+    });
+    return () => {
+      unsubProducts();
+      unsubCustomers();
+      unsubInvoices();
+    };
+  }, []);
 
   // Billing State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
 
-  const handleAddProduct = (product: Product) => setProducts([...products, product]);
-  const handleUpdateProduct = (updated: Product) => setProducts(products.map(p => p.id === updated.id ? updated : p));
-  const handleDeleteProduct = (id: string) => setProducts(products.filter(p => p.id !== id));
+  const handleAddProduct = async (product: Product) => {
+    const { id, ...data } = product; // Remove placeholder ID
+    await addDoc(collection(db, 'products'), data);
+  };
+  const handleUpdateProduct = async (updated: Product) => {
+    const { id, ...data } = updated;
+    await updateDoc(doc(db, 'products', id), data);
+  };
+  const handleDeleteProduct = async (id: string) => {
+    await deleteDoc(doc(db, 'products', id));
+  };
 
-  const handleAddCustomer = (customer: Customer) => setCustomers([...customers, customer]);
-  const handleUpdateCustomer = (updated: Customer) => setCustomers(customers.map(c => c.id === updated.id ? updated : c));
-  const handleDeleteCustomer = (id: string) => setCustomers(customers.filter(c => c.id !== id));
+  const handleAddCustomer = async (customer: Customer) => {
+    const { id, ...data } = customer;
+    await addDoc(collection(db, 'customers'), data);
+  };
+  const handleUpdateCustomer = async (updated: Customer) => {
+    const { id, ...data } = updated;
+    await updateDoc(doc(db, 'customers', id), data);
+  };
+  const handleDeleteCustomer = async (id: string) => {
+    await deleteDoc(doc(db, 'customers', id));
+  };
 
-  const handleCheckout = (status: Invoice['status'], amountPaidInput?: number) => {
+  const handleCheckout = async (status: Invoice['status'], amountPaidInput?: number) => {
     if (cart.length === 0) return;
     
     const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
@@ -66,46 +101,41 @@ export default function App() {
     if (status === 'Paid') amountPaid = total;
     else if (status === 'Partially Paid') amountPaid = amountPaidInput || 0;
     
-    const newInvoice: Invoice = {
-      id: `INV-${Date.now().toString().slice(-4)}`,
+    const invoiceData = {
       date: new Date().toISOString(),
       customerName: customer ? (customer.shopName || customer.name) : 'Walk-in Customer',
       customerId: selectedCustomerId,
-      customer: customer,
-      items: [...cart],
+      customer: customer || null,
+      items: cart,
       total,
       status,
       amountPaid
     };
+    await addDoc(collection(db, 'invoices'), invoiceData);
 
     // Update stock
-    const updatedProducts = products.map(p => {
-      const cartItem = cart.find(c => c.product.id === p.id);
-      if (cartItem) {
-        return { ...p, stock: p.stock - cartItem.quantity };
+    for (const item of cart) {
+      if (item.product && item.product.id) {
+        const newStock = item.product.stock - item.quantity;
+        await updateDoc(doc(db, 'products', item.product.id), { stock: newStock });
       }
-      return p;
-    });
+    }
 
-    setProducts(updatedProducts);
-    setInvoices([newInvoice, ...invoices]);
     setCart([]);
     setSelectedCustomerId('');
     setActiveView('invoices');
   };
 
-  const handleUpdateInvoiceStatus = (invoiceId: string, newStatus: Invoice['status'], newAmountPaid?: number) => {
-    setInvoices(invoices.map(inv => {
-      if (inv.id === invoiceId) {
-        let amountPaid = inv.amountPaid;
-        if (newStatus === 'Paid') amountPaid = inv.total;
-        else if (newStatus === 'Unpaid') amountPaid = 0;
-        else if (newStatus === 'Partially Paid' && newAmountPaid !== undefined) amountPaid = newAmountPaid;
-        
-        return { ...inv, status: newStatus, amountPaid };
-      }
-      return inv;
-    }));
+  const handleUpdateInvoiceStatus = async (invoiceId: string, newStatus: Invoice['status'], newAmountPaid?: number) => {
+    const inv = invoices.find(i => i.id === invoiceId);
+    if (!inv) return;
+
+    let amountPaid = inv.amountPaid;
+    if (newStatus === 'Paid') amountPaid = inv.total;
+    else if (newStatus === 'Unpaid') amountPaid = 0;
+    else if (newStatus === 'Partially Paid' && newAmountPaid !== undefined) amountPaid = newAmountPaid;
+    
+    await updateDoc(doc(db, 'invoices', invoiceId), { status: newStatus, amountPaid });
   };
 
   return (
