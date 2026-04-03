@@ -5,7 +5,9 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from './firebase';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { db, auth } from './firebase';
+import Login from './components/Login';
 import {
   LayoutDashboard,
   Package,
@@ -28,7 +30,8 @@ import {
   MapPin,
   Phone,
   Mail,
-  Calendar
+  Calendar,
+  LogOut
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
@@ -40,6 +43,9 @@ type View = 'dashboard' | 'inventory' | 'customers' | 'billing' | 'invoices';
 export default function App() {
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   
   // App State
   const [products, setProducts] = useState<Product[]>([]);
@@ -47,6 +53,21 @@ export default function App() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsLoadingAuth(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setProducts([]);
+      setCustomers([]);
+      setInvoices([]);
+      return;
+    }
+
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
     });
@@ -61,7 +82,15 @@ export default function App() {
       unsubCustomers();
       unsubInvoices();
     };
-  }, []);
+  }, [user]);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
 
   // Billing State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -92,38 +121,46 @@ export default function App() {
   };
 
   const handleCheckout = async (status: Invoice['status'], amountPaidInput?: number) => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || isProcessing) return;
     
-    const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-    const customer = customers.find(c => c.id === selectedCustomerId);
-    
-    let amountPaid = 0;
-    if (status === 'Paid') amountPaid = total;
-    else if (status === 'Partially Paid') amountPaid = amountPaidInput || 0;
-    
-    const invoiceData = {
-      date: new Date().toISOString(),
-      customerName: customer ? (customer.shopName || customer.name) : 'Walk-in Customer',
-      customerId: selectedCustomerId,
-      customer: customer || null,
-      items: cart,
-      total,
-      status,
-      amountPaid
-    };
-    await addDoc(collection(db, 'invoices'), invoiceData);
+    try {
+      setIsProcessing(true);
+      const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+      const customer = customers.find(c => c.id === selectedCustomerId);
+      
+      let amountPaid = 0;
+      if (status === 'Paid') amountPaid = total;
+      else if (status === 'Partially Paid') amountPaid = amountPaidInput || 0;
+      
+      const invoiceData = {
+        date: new Date().toISOString(),
+        customerName: customer ? (customer.shopName || customer.name) : 'Walk-in Customer',
+        customerId: selectedCustomerId,
+        customer: customer || null,
+        items: cart,
+        total,
+        status,
+        amountPaid
+      };
+      await addDoc(collection(db, 'invoices'), invoiceData);
 
-    // Update stock
-    for (const item of cart) {
-      if (item.product && item.product.id) {
-        const newStock = item.product.stock - item.quantity;
-        await updateDoc(doc(db, 'products', item.product.id), { stock: newStock });
+      // Update stock
+      for (const item of cart) {
+        if (item.product && item.product.id) {
+          const newStock = item.product.stock - item.quantity;
+          await updateDoc(doc(db, 'products', item.product.id), { stock: newStock });
+        }
       }
-    }
 
-    setCart([]);
-    setSelectedCustomerId('');
-    setActiveView('invoices');
+      setCart([]);
+      setSelectedCustomerId('');
+      setActiveView('invoices');
+    } catch (error) {
+      console.error('Error during checkout:', error);
+      alert('Failed to save invoice. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleUpdateInvoiceStatus = async (invoiceId: string, newStatus: Invoice['status'], newAmountPaid?: number) => {
@@ -137,6 +174,19 @@ export default function App() {
     
     await updateDoc(doc(db, 'invoices', invoiceId), { status: newStatus, amountPaid });
   };
+
+  if (isLoadingAuth) {
+    return (
+      <div className="h-screen bg-slate-50 flex flex-col items-center justify-center">
+        <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-500 font-medium">સુરક્ષિત લોડિંગ...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden relative print:h-auto print:overflow-visible">
@@ -172,6 +222,16 @@ export default function App() {
           <NavItem icon={<Users />} label="ગ્રાહકો" active={activeView === 'customers'} onClick={() => { setActiveView('customers'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<DollarSign />} label="બિલિંગ" active={activeView === 'billing'} onClick={() => { setActiveView('billing'); setIsMobileMenuOpen(false); }} />
           <NavItem icon={<FileText />} label="ઇન્વૉઇસ" active={activeView === 'invoices'} onClick={() => { setActiveView('invoices'); setIsMobileMenuOpen(false); }} />
+          
+          <div className="pt-4 mt-4 border-t border-slate-100">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-500 hover:bg-red-50 transition-colors font-medium"
+            >
+              <LogOut className="w-5 h-5" />
+              <span>લૉગઆઉટ</span>
+            </button>
+          </div>
         </nav>
       </aside>
 
@@ -188,7 +248,7 @@ export default function App() {
         {activeView === 'dashboard' && <div className="flex-1 overflow-auto"><DashboardView products={products} invoices={invoices} onViewAllInvoices={() => setActiveView('invoices')} onAddInvoice={() => setActiveView('billing')} /></div>}
         {activeView === 'inventory' && <div className="flex-1 overflow-auto"><InventoryView products={products} customers={customers} onAdd={handleAddProduct} onUpdate={handleUpdateProduct} onDelete={handleDeleteProduct} /></div>}
         {activeView === 'customers' && <div className="flex-1 overflow-auto"><CustomersView customers={customers} invoices={invoices} onAdd={handleAddCustomer} onUpdate={handleUpdateCustomer} onDelete={handleDeleteCustomer} /></div>}
-        {activeView === 'billing' && <div className="flex-1 overflow-hidden"><BillingView products={products} customers={customers} cart={cart} setCart={setCart} selectedCustomerId={selectedCustomerId} setSelectedCustomerId={setSelectedCustomerId} onCheckout={handleCheckout} /></div>}
+        {activeView === 'billing' && <div className="flex-1 overflow-hidden"><BillingView products={products} customers={customers} cart={cart} setCart={setCart} selectedCustomerId={selectedCustomerId} setSelectedCustomerId={setSelectedCustomerId} onCheckout={handleCheckout} isProcessing={isProcessing} /></div>}
         {activeView === 'invoices' && <div className="flex-1 overflow-auto print:overflow-visible"><InvoicesView invoices={invoices} onAddInvoice={() => setActiveView('billing')} onUpdateStatus={handleUpdateInvoiceStatus} /></div>}
       </main>
     </div>
@@ -690,9 +750,10 @@ function CustomerDetail({ customer, invoices, onBack }: { customer: Customer, in
   );
 }
 
-function BillingView({ products, customers, cart, setCart, selectedCustomerId, setSelectedCustomerId, onCheckout }: { 
+function BillingView({ products, customers, cart, setCart, selectedCustomerId, setSelectedCustomerId, onCheckout, isProcessing }: { 
   products: Product[], customers: Customer[], cart: CartItem[], setCart: React.Dispatch<React.SetStateAction<CartItem[]>>, 
-  selectedCustomerId: string, setSelectedCustomerId: (id: string) => void, onCheckout: (status: Invoice['status'], amountPaid?: number) => void 
+  selectedCustomerId: string, setSelectedCustomerId: (id: string) => void, onCheckout: (status: Invoice['status'], amountPaid?: number) => void,
+  isProcessing: boolean
 }) {
   const [search, setSearch] = useState('');
   const [paymentStatus, setPaymentStatus] = useState<Invoice['status']>('Paid');
@@ -876,10 +937,19 @@ function BillingView({ products, customers, cart, setCart, selectedCustomerId, s
 
           <button 
             onClick={() => onCheckout(paymentStatus, Number(amountPaid) || 0)}
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || isProcessing}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3 lg:py-4 rounded-xl shadow-sm transition-colors flex justify-center items-center gap-2 text-base lg:text-lg"
           >
-            <DollarSign className="w-5 h-5" /> ઇન્વૉઇસ સાચવો
+            {isProcessing ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                સાચવી રહ્યું છે...
+              </>
+            ) : (
+              <>
+                <DollarSign className="w-5 h-5" /> ઇન્વૉઇસ સાચવો
+              </>
+            )}
           </button>
         </div>
       </div>
