@@ -125,6 +125,8 @@ export default function App() {
     
     try {
       setIsProcessing(true);
+      const startTime = Date.now();
+
       const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
       const customer = customers.find(c => c.id === selectedCustomerId);
       
@@ -152,8 +154,15 @@ export default function App() {
         }
       }
 
+      // Reset the cart and selection
       setCart([]);
       setSelectedCustomerId('');
+      
+      // Calculate remaining time to fulfill the 3-second requirement
+      const elapsedTime = Date.now() - startTime;
+      const delay = Math.max(0, 3000 - elapsedTime);
+      await new Promise(resolve => setTimeout(resolve, delay));
+
       setActiveView('invoices');
     } catch (error) {
       console.error('Error during checkout:', error);
